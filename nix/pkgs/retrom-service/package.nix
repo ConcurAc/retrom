@@ -11,29 +11,40 @@
   protobuf_29,
   openssl,
   makeWrapper,
+
+  withEmbeddedDb ? false,
 }:
 
 rustPlatform.buildRustPackage (finalAttrs: {
   pname = "retrom-service";
-  inherit ((builtins.fromTOML (builtins.readFile ../../../Cargo.toml)).workspace.package) version;
+  inherit ((fromTOML (builtins.readFile ../../../Cargo.toml)).workspace.package) version;
+
+  __structuredAttrs = true;
 
   src = lib.cleanSourceWith {
     src = ../../../.;
-    filter = path: _: !(builtins.any (prefix: lib.path.hasPrefix (../../../. + prefix) (/. + path)) [
-      /nix
-      /flake.nix
-      /flake.lock
+    filter =
+      path: _:
+      !(builtins.any (prefix: lib.path.hasPrefix (../../../. + prefix) (/. + path)) [
+        /nix
+        /flake.nix
+        /flake.lock
 
-      /.github
-      /.gitignore
-    ]);
+        /.github
+        /.gitignore
+      ]);
   };
 
   pnpmDeps = fetchPnpmDeps {
     inherit (finalAttrs) pname version src;
-    fetcherVersion = 3;
-    hash = "sha256-MmWCpe7NzzT8W/Ic9y1VzGAp4rk0vxoOxbz5sRRlQs0=";
+    pnpm = pnpm_10;
+    fetcherVersion = 4;
+    hash = "sha256-5FkJc/rtptg4ZWlf1NU/57Ga8cLbW1LVc4MLxs+iyrA=";
   };
+
+  buildAndTestSubdir = "packages/service";
+
+  cargoBuildFeatures = lib.optional withEmbeddedDb "embedded_db";
 
   cargoLock.lockFile = "${finalAttrs.src}/Cargo.lock";
 
@@ -41,8 +52,6 @@ rustPlatform.buildRustPackage (finalAttrs: {
     "ludusavi-0.30.0" = "sha256-tDGfnX3fDDvrLvSnWvurIBwgDTWCjmbIJXDxgxQV5Og=";
     "webdav-meta-0.1.0" = "sha256-1XWBxlkdftg/Et7TexNmhKDZXl7ro+agMXodCRMV+e8=";
   };
-
-  buildAndTestSubdir = "packages/service";
 
   nativeBuildInputs = [
     pkg-config
@@ -59,7 +68,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
     openssl
   ];
 
-  buildPhase = ''
+  preBuild = ''
     export CI=true
     export NX_NO_CLOUD=true
     export NX_DAEMON=false
@@ -70,39 +79,38 @@ rustPlatform.buildRustPackage (finalAttrs: {
     # See https://github.com/nrwl/nx/issues/22445
     faketty pnpm nx build retrom-client-web
 
-    runHook cargoBuildHook
+    # Work around for https://github.com/pnpm/pnpm/issues/5315
+    mkdir -p web
+
+    cp -r packages/client-web/dist web
+
+    cp pnpm-workspace.yaml web
+    cp pnpm-lock.yaml web
+    cp package.json web
+    cp README.md web
+    cp packages/client-web/vite.config.ts web
+
+    pushd web
+    pnpm install --prod --offline --frozen-lockfile
+
+    rm -f pnpm-workspace.yaml pnpm-lock.yaml
+    popd
   '';
 
   postInstall = ''
-    dst=$out/share/retrom
-    mkdir -p $dst
-
-    # Work around for https://github.com/pnpm/pnpm/issues/5315
-    cp -r packages/client-web/dist $dst
-
-    cp pnpm-workspace.yaml $dst
-    cp pnpm-lock.yaml $dst
-    cp package.json $dst
-
-    cp README.md $dst
-    cp packages/client-web/vite.config.ts $dst
-
-    cd $dst
-    pnpm install --prod --offline --frozen-lockfile
-
-    rm pnpm-workspace.yaml
-    rm pnpm-lock.yaml
+    mkdir -p $out/share
+    cp -r web $out/share/retrom
   '';
 
   postFixup = ''
     wrapProgram $out/bin/retrom-service --set RETROM_WEB_DIR $out/share/retrom
   '';
 
-  meta = with lib; {
-    description = "A centralized game library/collection management service with a focus on emulation";
+  meta = {
+    description = "Server component of the Retrom game library management service";
     homepage = "https://github.com/JMBeresford/retrom";
-    license = licenses.gpl3;
-    platforms = platforms.linux;
+    license = lib.licenses.gpl3Only;
+    platforms = lib.platforms.linux;
     mainProgram = "retrom-service";
   };
 })
