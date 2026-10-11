@@ -15,6 +15,8 @@
   glib-networking,
   gst_all_1,
   wrapGAppsHook3,
+
+  nix-update-script,
 }:
 
 rustPlatform.buildRustPackage (finalAttrs: {
@@ -22,6 +24,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
   inherit ((fromTOML (builtins.readFile ../../../Cargo.toml)).workspace.package) version;
 
   __structuredAttrs = true;
+  strictDeps = true;
 
   src = lib.cleanSourceWith {
     src = ../../../.;
@@ -73,14 +76,20 @@ rustPlatform.buildRustPackage (finalAttrs: {
     gst_all_1.gst-plugins-good
   ];
 
-  preBuild = ''
-    export CI=true
-    export NX_NO_CLOUD=true
-    export NX_DAEMON=false
+  env = {
+    CI = "true";
+    NX_NO_CLOUD = "true";
+    NX_DAEMON = "false";
+    OPENSSL_NO_VENDOR = "1";
+  };
 
+  preBuild = ''
     # See https://github.com/nrwl/nx/issues/22445
     faketty pnpm nx build:desktop retrom-client-web
   '';
+
+  passthru.updateScript = nix-update-script { };
+
 
   meta = {
     description = "Desktop client for the Retrom game library management service";
